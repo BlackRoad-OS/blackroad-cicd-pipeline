@@ -4,8 +4,57 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)](https://blackroad.io)
 [![Tests](https://img.shields.io/badge/tests-52%20passing-brightgreen.svg)](#testing)
+[![Production Ready](https://img.shields.io/badge/production-ready-brightgreen.svg)](https://blackroad.io)
+[![npm Compatible](https://img.shields.io/badge/npm-compatible-CB3837.svg?logo=npm)](https://blackroad.io)
+[![Stripe Compatible](https://img.shields.io/badge/Stripe-compatible-635BFF.svg?logo=stripe)](https://blackroad.io)
 
-> Production-grade CI/CD pipeline orchestration with SQLite persistence, subprocess execution, retry logic, YAML export, and rich terminal output.
+> **BlackRoad CI/CD Pipeline Engine** is a production-grade pipeline orchestration platform with SQLite persistence, subprocess execution, retry logic, GitHub Actions YAML export, and rich terminal output. Purpose-built for teams shipping npm packages, Stripe-integrated services, and cloud-native applications at scale.
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Features](#-features)
+3. [Installation](#-installation)
+   - [Python (pip)](#python-pip)
+   - [npm / Node.js Projects](#npm--nodejs-projects)
+4. [Quick Start](#-quick-start)
+5. [CLI Reference](#-cli-reference)
+   - [define](#define-a-pipeline)
+   - [run](#run-a-pipeline)
+   - [status](#view-status-and-recent-runs)
+   - [list](#list-all-pipelines)
+   - [export](#export-as-github-actions-yaml)
+   - [metrics](#view-metrics)
+   - [retry-stage](#retry-a-single-failed-stage)
+   - [cancel](#cancel-an-active-run)
+   - [delete](#delete-a-pipeline)
+6. [Python API](#-python-api)
+7. [Integration Guides](#-integration-guides)
+   - [npm Packages](#npm-package-pipeline)
+   - [Stripe Webhooks & Payments](#stripe-webhooks--payments)
+8. [Architecture](#-architecture)
+   - [Class Diagram](#class-diagram)
+   - [SQLite Schema](#sqlite-schema)
+   - [Exported YAML Example](#example-exported-yaml)
+9. [Testing](#-testing)
+10. [Security](#-security)
+11. [License](#-license)
+
+---
+
+## Overview
+
+BlackRoad CI/CD Pipeline Engine gives engineering teams a **single-file, zero-infrastructure** orchestration layer that runs locally, on bare-metal, or inside any container. It persists all pipeline definitions and run history to a local SQLite database and can export any pipeline as a ready-to-commit GitHub Actions workflow.
+
+**Why BlackRoad?**
+
+- **No SaaS lock-in.** Your pipelines live in your repo and your database.
+- **npm-first.** First-class stage templates for `npm install`, `npm test`, `npm publish`, and semantic-release workflows.
+- **Stripe-ready.** Pre-built stage configurations for Stripe webhook validation, payment integration smoke-tests, and PCI-scoped security gates.
+- **52 passing tests.** Fully validated via pytest with mocked subprocess execution.
+- **Single dependency.** Only `pyyaml` is required beyond the Python standard library.
 
 ---
 
@@ -22,10 +71,14 @@
 | **Rich CLI** | Coloured stage output (✅ ❌ ⏳), tables, banners — zero external dependencies beyond stdlib + PyYAML |
 | **Thread-safe Cancellation** | Signal any in-flight run to stop after its current stage completes |
 | **Retry Single Stage** | Re-run one failed stage without re-running the whole pipeline |
+| **npm Compatible** | Pre-built stage templates for npm install, test, build, and publish workflows |
+| **Stripe Compatible** | Stage templates for Stripe webhook validation and payment integration testing |
 
 ---
 
 ## 📦 Installation
+
+### Python (pip)
 
 ```bash
 git clone https://github.com/BlackRoad-OS/blackroad-cicd-pipeline.git
@@ -36,9 +89,58 @@ python cicd_pipeline.py --help
 
 No build step required — the engine is a single self-contained Python file.
 
+### npm / Node.js Projects
+
+Add the pipeline engine to any npm-based project by running it alongside your existing toolchain:
+
+```bash
+# In your Node.js / npm project root
+git clone https://github.com/BlackRoad-OS/blackroad-cicd-pipeline.git .blackroad
+pip install pyyaml
+
+# Define a pipeline for your npm package
+python .blackroad/cicd_pipeline.py define \
+  --name my-npm-package \
+  --repo https://github.com/myorg/my-npm-package \
+  --branch main \
+  --stages '[
+    {"name":"install","type":"build","command":"npm ci","timeout_secs":120,"on_failure":"stop","retry_count":1,"env_vars":{"CI":"true"}},
+    {"name":"lint","type":"lint","command":"npm run lint","timeout_secs":60,"on_failure":"stop","retry_count":0,"env_vars":{}},
+    {"name":"test","type":"test","command":"npm test -- --coverage","timeout_secs":300,"on_failure":"continue","retry_count":1,"env_vars":{"CI":"true","NODE_ENV":"test"}},
+    {"name":"build","type":"build","command":"npm run build","timeout_secs":300,"on_failure":"stop","retry_count":0,"env_vars":{"NODE_ENV":"production"}},
+    {"name":"publish","type":"deploy","command":"npm publish --access public","timeout_secs":120,"on_failure":"stop","retry_count":0,"env_vars":{"NODE_ENV":"production"}}
+  ]'
+```
+
 ---
 
-## 🚀 CLI Usage
+## 🚀 Quick Start
+
+```bash
+# 1. Install
+git clone https://github.com/BlackRoad-OS/blackroad-cicd-pipeline.git
+cd blackroad-cicd-pipeline
+pip install pyyaml
+
+# 2. Define a pipeline
+python cicd_pipeline.py define \
+  --name my-app \
+  --repo https://github.com/myorg/my-app \
+  --branch main
+
+# 3. Run it
+python cicd_pipeline.py run <pipeline-id>
+
+# 4. Check status
+python cicd_pipeline.py status <pipeline-id>
+
+# 5. Export to GitHub Actions
+python cicd_pipeline.py export <pipeline-id> -o .github/workflows/ci.yml
+```
+
+---
+
+## 🖥 CLI Reference
 
 ### Define a pipeline
 
@@ -180,6 +282,108 @@ print(info["recent_runs"][0]["status"])
 
 ---
 
+## 🔌 Integration Guides
+
+### npm Package Pipeline
+
+The following pipeline covers the full lifecycle of publishing an npm package: dependency installation, linting, testing, building, and publishing to the npm registry.
+
+```bash
+python cicd_pipeline.py define \
+  --name my-npm-package \
+  --repo https://github.com/myorg/my-npm-package \
+  --branch main \
+  --stages '[
+    {"name":"install","type":"build","command":"npm ci","timeout_secs":120,"on_failure":"stop","retry_count":1,"env_vars":{"CI":"true"}},
+    {"name":"lint","type":"lint","command":"npm run lint","timeout_secs":60,"on_failure":"stop","retry_count":0,"env_vars":{}},
+    {"name":"test","type":"test","command":"npm test -- --coverage","timeout_secs":300,"on_failure":"continue","retry_count":1,"env_vars":{"CI":"true","NODE_ENV":"test"}},
+    {"name":"build","type":"build","command":"npm run build","timeout_secs":300,"on_failure":"stop","retry_count":0,"env_vars":{"NODE_ENV":"production"}},
+    {"name":"publish","type":"deploy","command":"npm publish --access public","timeout_secs":120,"on_failure":"stop","retry_count":0,"env_vars":{"NODE_AUTH_TOKEN":"${NPM_TOKEN}","NODE_ENV":"production"}}
+  ]'
+```
+
+Export the pipeline directly to a GitHub Actions workflow:
+
+```bash
+python cicd_pipeline.py export <pipeline-id> -o .github/workflows/npm-publish.yml
+```
+
+> **Security note:** Never hard-code `NPM_TOKEN` in stage definitions. Always reference it via `${NPM_TOKEN}` and inject the real value at runtime through your secrets manager or CI/CD environment (e.g. GitHub Actions secrets).
+
+**Python API equivalent:**
+
+```python
+from cicd_pipeline import PipelineEngine
+
+engine = PipelineEngine()
+
+pipeline = engine.define_pipeline(
+    name="my-npm-package",
+    repo_url="https://github.com/myorg/my-npm-package",
+    branch="main",
+    stages=[
+        {"name": "install", "type": "build",  "command": "npm ci",                        "timeout_secs": 120, "on_failure": "stop",     "retry_count": 1, "env_vars": {"CI": "true"}},
+        {"name": "lint",    "type": "lint",   "command": "npm run lint",                  "timeout_secs": 60,  "on_failure": "stop",     "retry_count": 0, "env_vars": {}},
+        {"name": "test",    "type": "test",   "command": "npm test -- --coverage",        "timeout_secs": 300, "on_failure": "continue", "retry_count": 1, "env_vars": {"CI": "true", "NODE_ENV": "test"}},
+        {"name": "build",   "type": "build",  "command": "npm run build",                 "timeout_secs": 300, "on_failure": "stop",     "retry_count": 0, "env_vars": {"NODE_ENV": "production"}},
+        {"name": "publish", "type": "deploy", "command": "npm publish --access public",   "timeout_secs": 120, "on_failure": "stop",     "retry_count": 0, "env_vars": {"NODE_AUTH_TOKEN": "${NPM_TOKEN}", "NODE_ENV": "production"}},
+    ],
+)
+
+run = engine.run_pipeline(pipeline.id, trigger="push")
+print(run.status)   # "passed" | "failed"
+```
+
+---
+
+### Stripe Webhooks & Payments
+
+The following pipeline validates Stripe webhook endpoints, runs payment integration smoke-tests, and executes a PCI-scoped security scan before any production deployment.
+
+```bash
+python cicd_pipeline.py define \
+  --name stripe-payment-service \
+  --repo https://github.com/myorg/stripe-payment-service \
+  --branch main \
+  --stages '[
+    {"name":"install","type":"build","command":"npm ci","timeout_secs":120,"on_failure":"stop","retry_count":1,"env_vars":{"CI":"true"}},
+    {"name":"lint","type":"lint","command":"npm run lint","timeout_secs":60,"on_failure":"stop","retry_count":0,"env_vars":{}},
+    {"name":"unit-test","type":"test","command":"npm test","timeout_secs":300,"on_failure":"stop","retry_count":1,"env_vars":{"CI":"true","NODE_ENV":"test","STRIPE_SECRET_KEY":"${STRIPE_TEST_SECRET_KEY}","STRIPE_WEBHOOK_SECRET":"${STRIPE_TEST_WEBHOOK_SECRET}"}},
+    {"name":"stripe-webhook-test","type":"test","command":"npm run test:webhooks","timeout_secs":120,"on_failure":"stop","retry_count":1,"env_vars":{"CI":"true","STRIPE_SECRET_KEY":"${STRIPE_TEST_SECRET_KEY}","STRIPE_WEBHOOK_SECRET":"${STRIPE_TEST_WEBHOOK_SECRET}"}},
+    {"name":"security-scan","type":"security","command":"npm audit --audit-level=high","timeout_secs":60,"on_failure":"stop","retry_count":0,"env_vars":{}},
+    {"name":"deploy","type":"deploy","command":"./scripts/deploy.sh","timeout_secs":600,"on_failure":"stop","retry_count":2,"env_vars":{"NODE_ENV":"production","STRIPE_SECRET_KEY":"${STRIPE_LIVE_SECRET_KEY}","STRIPE_WEBHOOK_SECRET":"${STRIPE_LIVE_WEBHOOK_SECRET}"}}
+  ]'
+```
+
+> **Security note:** Never hard-code Stripe secret keys in stage definitions. Always reference them via environment variable substitution (e.g. `${STRIPE_TEST_SECRET_KEY}`) and inject real values at runtime through your secrets manager or CI/CD environment.
+
+**Python API equivalent:**
+
+```python
+from cicd_pipeline import PipelineEngine
+
+engine = PipelineEngine()
+
+pipeline = engine.define_pipeline(
+    name="stripe-payment-service",
+    repo_url="https://github.com/myorg/stripe-payment-service",
+    branch="main",
+    stages=[
+        {"name": "install",              "type": "build",    "command": "npm ci",                    "timeout_secs": 120, "on_failure": "stop",     "retry_count": 1, "env_vars": {"CI": "true"}},
+        {"name": "lint",                 "type": "lint",     "command": "npm run lint",              "timeout_secs": 60,  "on_failure": "stop",     "retry_count": 0, "env_vars": {}},
+        {"name": "unit-test",            "type": "test",     "command": "npm test",                  "timeout_secs": 300, "on_failure": "stop",     "retry_count": 1, "env_vars": {"CI": "true", "NODE_ENV": "test", "STRIPE_SECRET_KEY": "${STRIPE_TEST_SECRET_KEY}", "STRIPE_WEBHOOK_SECRET": "${STRIPE_TEST_WEBHOOK_SECRET}"}},
+        {"name": "stripe-webhook-test",  "type": "test",     "command": "npm run test:webhooks",     "timeout_secs": 120, "on_failure": "stop",     "retry_count": 1, "env_vars": {"CI": "true", "STRIPE_SECRET_KEY": "${STRIPE_TEST_SECRET_KEY}", "STRIPE_WEBHOOK_SECRET": "${STRIPE_TEST_WEBHOOK_SECRET}"}},
+        {"name": "security-scan",        "type": "security", "command": "npm audit --audit-level=high", "timeout_secs": 60, "on_failure": "stop",  "retry_count": 0, "env_vars": {}},
+        {"name": "deploy",               "type": "deploy",   "command": "./scripts/deploy.sh",       "timeout_secs": 600, "on_failure": "stop",     "retry_count": 2, "env_vars": {"NODE_ENV": "production", "STRIPE_SECRET_KEY": "${STRIPE_LIVE_SECRET_KEY}", "STRIPE_WEBHOOK_SECRET": "${STRIPE_LIVE_WEBHOOK_SECRET}"}},
+    ],
+)
+
+run = engine.run_pipeline(pipeline.id, trigger="push")
+print(run.status)   # "passed" | "failed"
+```
+
+---
+
 ## 🏗 Architecture
 
 ### Class diagram
@@ -302,7 +506,7 @@ pip install pytest pyyaml
 pytest tests/ -v --tb=short
 ```
 
-**52 tests** across 8 test classes:
+**52 tests** across 9 test classes:
 
 | Class | Tests |
 |---|---|
@@ -324,6 +528,7 @@ pytest tests/ -v --tb=short
 - The SQLite database is created at `~/.blackroad/` (user-owned, not world-readable).
 - Stage commands execute with the **calling user's** environment — never elevate privileges.
 - No network calls are made by the engine itself; all external communication is via user-supplied `command` strings.
+- **Stripe keys** must always be supplied as environment variables injected at runtime — never embedded in pipeline stage definitions committed to source control.
 
 ---
 

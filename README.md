@@ -534,4 +534,4 @@ pytest tests/ -v --tb=short
 
 ## 📄 License
 
-© BlackRoad OS, Inc. All rights reserved. Proprietary — not open source.
+© BlackRoad OS, Inc. All rights reserved. Proprietary — not open-access.
